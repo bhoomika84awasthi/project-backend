@@ -1,42 +1,51 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const dotenv = require('dotenv');
+const cors = require('cors');
 const path = require('path');
 
-// Load environment variables
 dotenv.config();
-
 const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-// serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// MongoDB Connection
+// Import routes (✅ Corrected names)
+const authRoutes = require('./routes/auth');
+const projectRoutes = require('./routes/project');
+const fileRoutes = require('./routes/file');
+
+// Use routes
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/files', fileRoutes);
+
+// MongoDB connection
 mongoose
-  .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/project-backend', {
+  .connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log('✅ MongoDB Connected Successfully'))
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err));
-
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/projects', require('./routes/project'));
-app.use('/api/tasks', require('./routes/projectTask'));
-app.use('/api/status', require('./routes/projectStatus'));
-app.use('/api/comments', require('./routes/comment'));
-app.use('/api/files', require('./routes/file'));
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('🚀 Server is running successfully!');
-});
+  .then(() => console.log('✅ MongoDB connected successfully'))
+  .catch((err) => console.error('❌ MongoDB connection error:', err));
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+// Express error handler (catches errors passed to next)
+app.use((err, req, res, next) => {
+  console.error('Unhandled express error:', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ message: 'Server error' });
+});
+
+// Process-level handlers to avoid crashing on unexpected exceptions during multipart parsing
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});

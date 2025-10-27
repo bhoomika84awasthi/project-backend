@@ -4,9 +4,10 @@ const path = require('path');
 
 exports.createProject = async (req, res) => {
   try {
-    const { title, description } = req.body;
+    const { title, description, logo } = req.body; // logo may be a string URL/path
     if (!title) return res.status(400).json({ message: 'Title required' });
     const project = new Project({ title, description, owner: req.user._id });
+    if (logo) project.logoUrl = logo;
     await project.save();
     res.json(project);
   } catch (err) {
@@ -16,14 +17,14 @@ exports.createProject = async (req, res) => {
 
 exports.getProjects = async (req, res) => {
   try {
-    const projects = await Project.find({ owner: req.user._id });
+    const projects = await Project.find({ owner: req.user._id }).populate('logo');
     res.json(projects);
   } catch (err) { console.error(err); res.status(500).send('Server error'); }
 };
 
 exports.getProject = async (req, res) => {
   try {
-    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
+    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id }).populate('logo');
     if (!project) return res.status(404).json({ message: 'Project not found' });
     res.json(project);
   } catch (err) { console.error(err); res.status(500).send('Server error'); }
@@ -31,11 +32,15 @@ exports.getProject = async (req, res) => {
 
 exports.updateProject = async (req, res) => {
   try {
+    const update = { ...req.body };
+    // accept logo string in body
+    if (req.body.logo) update.logoUrl = req.body.logo;
+
     const project = await Project.findOneAndUpdate(
       { _id: req.params.id, owner: req.user._id },
-      { $set: req.body },
+      { $set: update },
       { new: true }
-    );
+    ).populate('logo');
     if (!project) return res.status(404).json({ message: 'Project not found or not authorized' });
     res.json(project);
   } catch (err) { console.error(err); res.status(500).send('Server error'); }
