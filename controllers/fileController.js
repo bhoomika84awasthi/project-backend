@@ -1,72 +1,139 @@
 const File = require('../models/File');
+const path = require('path');
+const fs = require('fs');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
 
-exports.createFile = async (req, res) => {
-  try {
-    const { filename, filepath, projectid, userid } = req.body;
-    if (!filename || !filepath || !projectid || !userid) return res.status(400).json({ message: 'Missing required fields' });
+exports.uploadFile = catchAsync(async (req, res, next) => {
+  if (!req.file) {
+    return next(new AppError('No file uploaded', 400));
+  }
 
-    const file = new File({
-      filename,
-      filepath,
-      projectid,
-      userid,
-      addedby: req.user ? req.user._id : userid,
-      addedon: new Date(),
-      isactive: true,
-    });
+  if (!req.body.projectId) {
+    return next(new AppError('Project ID is required', 400));
+  }
 
-    await file.save();
-    res.json(file);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  const file = new File({
+    filename: req.file.originalname,
+    filepath: path.join('uploads', req.file.filename).replace(/\\/g, '/'),
+    projectid: req.body.projectId,
+    userid: req.user._id,
+    addedby: req.user._id,
+    addedon: new Date(),
+    isactive: true
+  });
 
-exports.getFiles = async (req, res) => {
-  try {
-    // allow query by projectid or userid, default to all active files
-    const filter = { isactive: true };
-    if (req.query.projectid) filter.projectid = req.query.projectid;
-    if (req.query.userid) filter.userid = req.query.userid;
+  await file.save();
 
-    const files = await File.find(filter).populate('projectid', 'title').populate('userid', 'name');
-    res.json(files);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  res.status(201).json({
+    status: 'success',
+    data: {
+      file
+    }
+  });
+});
 
-exports.getFileById = async (req, res) => {
-  try {
-    const file = await File.findById(req.params.id);
-    if (!file || !file.isactive) return res.status(404).json({ message: 'File not found' });
-    res.json(file);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+exports.getFiles = catchAsync(async (req, res, next) => {
+  const filter = { isactive: true };
+  if (req.query.projectId) filter.projectid = req.query.projectId;
+  if (req.query.userId) filter.userid = req.query.userId;
 
-exports.updateFile = async (req, res) => {
-  try {
-    const { filename, filepath, isactive } = req.body;
-    const file = await File.findById(req.params.id);
-    if (!file) return res.status(404).json({ message: 'File not found' });
+  const files = await File.find(filter)
+    .populate('projectid', 'title')
+    .populate('userid', 'name')
+    .sort({ addedon: -1 });
 
-    if (filename !== undefined) file.filename = filename;
-    if (filepath !== undefined) file.filepath = filepath;
-    if (isactive !== undefined) file.isactive = isactive;
+  res.status(200).json({
+    status: 'success',
+    results: files.length,
+    data: {
+      files
+    }
+  });
+});
 
-    file.updatedon = new Date();
-    file.updatedby = req.user ? req.user._id : file.updatedby;
+exports.getFile = catchAsync(async (req, res, next) => {
+  const file = await File.findById(req.params.id)
+    .populate('projectid', 'title')
+    .populate('userid', 'name');
 
-    await file.save();
-    res.json(file);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  if (!file || !file.isactive) {
+    return next(new AppError('File not found', 404));
+  }
 
-exports.deleteFile = async (req, res) => {
-  try {
-    // soft delete
-    const file = await File.findById(req.params.id);
-    if (!file) return res.status(404).json({ message: 'File not found' });
-    file.isactive = false;
-    file.updatedon = new Date();
-    file.updatedby = req.user ? req.user._id : file.updatedby;
-    await file.save();
-    res.json({ message: 'File deactivated' });
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  res.status(200).json({
+    status: 'success',
+    data: {
+      file
+    }
+  });
+});
+
+exports.downloadFile = catchAsync(async (req, res, next) => {
+  const file = await File.findById(req.params.id);
+
+  if (!file || !file.isactive) {
+    return next(new AppError('File not found', 404));
+  }
+
+  const filePath = path.join(__dirname, '..', file.filepath);
+  
+  if (!fs.existsSync(filePath)) {
+    return next(new AppError('File not found on server', 404));
+  }
+
+  res.download(filePath, file.filename);
+});
+
+exports.updateFile = catchAsync(async (req, res, next) => {
+  const file = await File.findById(req.params.id);
+
+  if (!file || !file.isactive) {
+    return next(new AppError('File not found', 404));
+  }
+
+  // Check if user has permission
+  if (file.userid.toString() !== req.user._id.toString()) {
+    return next(new AppError('Not authorized to update this file', 403));
+  }
+
+  // Update allowed fields
+  if (req.body.filename) file.filename = req.body.filename;
+  if (req.body.isactive !== undefined) file.isactive = req.body.isactive;
+  
+  file.updatedon = new Date();
+  file.updatedby = req.user._id;
+
+  await file.save();
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      file
+    }
+  });
+});
+
+exports.deleteFile = catchAsync(async (req, res, next) => {
+  const file = await File.findById(req.params.id);
+
+  if (!file || !file.isactive) {
+    return next(new AppError('File not found', 404));
+  }
+
+  // Check if user has permission
+  if (file.userid.toString() !== req.user._id.toString()) {
+    return next(new AppError('Not authorized to delete this file', 403));
+  }
+
+  // Soft delete
+  file.isactive = false;
+  file.updatedon = new Date();
+  file.updatedby = req.user._id;
+  await file.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'File deleted successfully'
+  });
+});

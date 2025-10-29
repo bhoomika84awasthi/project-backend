@@ -1,8 +1,9 @@
-// routes/file.js
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const router = express.Router();
+const auth = require('../middleware/auth');
+const fileController = require('../controllers/fileController');
 
 // Storage setup
 const storage = multer.diskStorage({
@@ -15,32 +16,37 @@ const storage = multer.diskStorage({
   }
 });
 
-// set a reasonable file size limit to avoid stream issues
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB
+// File filter
+const fileFilter = (req, file, cb) => {
+  // Add any file type restrictions here
+  cb(null, true);
+};
 
-// Accept any single file field (more permissive) and handle errors
-router.post('/upload', (req, res) => {
-  // Use upload.any() to accept different field names. We'll pick the first file.
-  upload.any()(req, res, function (err) {
-    if (err instanceof multer.MulterError) {
-      console.error('Multer error:', err);
-      return res.status(400).json({ success: false, message: err.message });
-    } else if (err) {
-      console.error('Upload error:', err);
-      return res.status(500).json({ success: false, message: 'Server error' });
-    }
-
-    let fileObj = null;
-    if (Array.isArray(req.files) && req.files.length) fileObj = req.files[0];
-    if (!fileObj && req.file) fileObj = req.file;
-    if (!fileObj) return res.status(400).json({ success: false, message: 'No file uploaded' });
-
-    res.json({
-      success: true,
-      message: 'File uploaded successfully!',
-      filePath: `/uploads/${fileObj.filename}`
-    });
-  });
+const upload = multer({ 
+  storage, 
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter 
 });
+
+// Protected routes
+router.use(auth);
+
+// Upload file
+router.post('/upload', upload.single('file'), fileController.uploadFile);
+
+// Get all files (with optional filters)
+router.get('/', fileController.getFiles);
+
+// Get single file by ID
+router.get('/:id', fileController.getFile);
+
+// Download file
+router.get('/download/:id', fileController.downloadFile);
+
+// Update file metadata
+router.patch('/:id', fileController.updateFile);
+
+// Delete file (soft delete)
+router.delete('/:id', fileController.deleteFile);
 
 module.exports = router;

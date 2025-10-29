@@ -16,11 +16,13 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/project');
 const fileRoutes = require('./routes/file');
+const timeLogRoutes = require('./routes/timeLog');
 
 // Use routes
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/timelogs', timeLogRoutes);
 
 // MongoDB connection
 mongoose
@@ -35,12 +37,9 @@ mongoose
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
-// Express error handler (catches errors passed to next)
-app.use((err, req, res, next) => {
-  console.error('Unhandled express error:', err);
-  if (res.headersSent) return next(err);
-  res.status(500).json({ message: 'Server error' });
-});
+// Global Error Handler
+const globalErrorHandler = require('./utils/errorHandler');
+app.use(globalErrorHandler);
 
 // Process-level handlers to avoid crashing on unexpected exceptions during multipart parsing
 process.on('uncaughtException', (err) => {

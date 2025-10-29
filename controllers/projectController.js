@@ -1,88 +1,139 @@
 const Project = require('../models/Project');
 const File = require('../models/File');
 const path = require('path');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
 
-exports.createProject = async (req, res) => {
-  try {
-    const { title, description, logo } = req.body; // logo may be a string URL/path
-    if (!title) return res.status(400).json({ message: 'Title required' });
-    const project = new Project({ title, description, owner: req.user._id });
-    if (logo) project.logoUrl = logo;
-    await project.save();
-    res.json(project);
-  } catch (err) {
-    console.error(err); res.status(500).send('Server error');
+exports.createProject = catchAsync(async (req, res, next) => {
+  const { title, description, logo } = req.body;
+  
+  if (!title) {
+    return next(new AppError('Title is required', 400));
   }
-};
 
-exports.getProjects = async (req, res) => {
-  try {
-    const projects = await Project.find({ owner: req.user._id }).populate('logo');
-    res.json(projects);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  const project = new Project({ 
+    title, 
+    description, 
+    owner: req.user._id 
+  });
 
-exports.getProject = async (req, res) => {
-  try {
-    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id }).populate('logo');
-    if (!project) return res.status(404).json({ message: 'Project not found' });
-    res.json(project);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  if (logo) project.logoUrl = logo;
+  await project.save();
+  
+  res.status(201).json({
+    status: 'success',
+    data: {
+      project
+    }
+  });
+});
 
-exports.updateProject = async (req, res) => {
-  try {
-    const update = { ...req.body };
-    // accept logo string in body
-    if (req.body.logo) update.logoUrl = req.body.logo;
+exports.getProjects = catchAsync(async (req, res, next) => {
+  const projects = await Project.find({ owner: req.user._id }).populate('logo');
+  
+  res.status(200).json({
+    status: 'success',
+    results: projects.length,
+    data: {
+      projects
+    }
+  });
+});
 
-    const project = await Project.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user._id },
-      { $set: update },
-      { new: true }
-    ).populate('logo');
-    if (!project) return res.status(404).json({ message: 'Project not found or not authorized' });
-    res.json(project);
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+exports.getProject = catchAsync(async (req, res, next) => {
+  const project = await Project.findOne({ 
+    _id: req.params.id, 
+    owner: req.user._id 
+  }).populate('logo');
 
-exports.deleteProject = async (req, res) => {
-  try {
-    const project = await Project.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
-    if (!project) return res.status(404).json({ message: 'Project not found or not authorized' });
-    res.json({ message: 'Project deleted' });
-  } catch (err) { console.error(err); res.status(500).send('Server error'); }
-};
+  if (!project) {
+    return next(new AppError('Project not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      project
+    }
+  });
+});
+
+exports.updateProject = catchAsync(async (req, res, next) => {
+  const update = { ...req.body };
+  if (req.body.logo) update.logoUrl = req.body.logo;
+
+  const project = await Project.findOneAndUpdate(
+    { _id: req.params.id, owner: req.user._id },
+    { $set: update },
+    { new: true, runValidators: true }
+  ).populate('logo');
+
+  if (!project) {
+    return next(new AppError('Project not found or not authorized', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      project
+    }
+  });
+});
+
+exports.deleteProject = catchAsync(async (req, res, next) => {
+  const project = await Project.findOneAndDelete({ 
+    _id: req.params.id, 
+    owner: req.user._id 
+  });
+
+  if (!project) {
+    return next(new AppError('Project not found or not authorized', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Project deleted successfully'
+  });
+});
 
 // Upload project logo handler (expects middleware to handle file upload)
-exports.uploadProjectLogo = async (req, res) => {
-  try {
-    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!project) return res.status(404).json({ message: 'Project not found or not authorized' });
+exports.uploadProjectLogo = catchAsync(async (req, res, next) => {
+  const project = await Project.findOne({ 
+    _id: req.params.id, 
+    owner: req.user._id 
+  });
 
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-
-    // Save file record
-    const relativePath = path.join('uploads', 'projects', req.file.filename).replace(/\\/g, '/');
-    const file = new File({
-      filename: req.file.originalname,
-      filepath: relativePath,
-      projectid: project._id,
-      userid: req.user._id,
-      addedby: req.user._id,
-      addedon: new Date(),
-      isactive: true,
-    });
-
-    await file.save();
-
-    // attach to project
-    project.logo = file._id;
-    await project.save();
-
-    res.json({ project, file });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
+  if (!project) {
+    return next(new AppError('Project not found or not authorized', 404));
   }
-};
+
+  if (!req.file) {
+    return next(new AppError('No file uploaded', 400));
+  }
+
+  // Save file record
+  const relativePath = path.join('uploads', 'projects', req.file.filename).replace(/\\/g, '/');
+  const file = new File({
+    filename: req.file.originalname,
+    filepath: relativePath,
+    projectid: project._id,
+    userid: req.user._id,
+    addedby: req.user._id,
+    addedon: new Date(),
+    isactive: true,
+  });
+
+  await file.save();
+
+  // attach to project
+  project.logo = file._id;
+  await project.save();
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      project,
+      file
+    }
+  });
+});
