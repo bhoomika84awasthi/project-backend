@@ -6,6 +6,9 @@ const timeLogController = require('../controllers/timeLogController');
 // Create a new time log
 router.post('/', auth, timeLogController.createTimeLog);
 
+// Get all time logs (with optional filters)
+router.get('/', auth, timeLogController.getTimeLogs);
+
 // Get all time logs for a task
 router.get('/task/:taskId', auth, timeLogController.getTimeLogsByTask);
 
